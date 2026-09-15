@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WTM — Daily Check</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600&family=Newsreader:ital,wght@0,500;1,500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F0F2EE;
+    --panel: #FFFFFF;
+    --ink: #24291F;
+    --ink-soft: #5B6156;
+    --line: #DADFD5;
+    --flag: #7A3B4C;
+    --flag-bg: #F5E9EB;
+    --clean: #4C7A63;
+    --accent: #24291F;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Work Sans', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 48px 24px 96px; }
+
+  h1 {
+    font-family: 'Newsreader', serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 34px;
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+  .subhead {
+    color: var(--ink-soft);
+    font-size: 15px;
+    margin: 0 0 40px;
+  }
+
+  /* --- Login gate --- */
+  #login {
+    max-width: 340px;
+    margin: 120px auto 0;
+    text-align: center;
+  }
+  #login h1 { font-size: 28px; }
+  #login p { color: var(--ink-soft); font-size: 14px; margin-bottom: 28px; }
+  .field-row {
+    display: flex;
+    gap: 8px;
+  }
+  input[type="password"] {
+    flex: 1;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--panel);
+    font-size: 15px;
+    color: var(--ink);
+    font-family: inherit;
+  }
+  input[type="password"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    padding: 12px 20px;
+    border: none;
+    border-radius: 3px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 15px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .error-msg { color: var(--flag); font-size: 13px; margin-top: 14px; min-height: 18px; }
+
+  /* --- App --- */
+  #app { display: none; }
+
+  .date-picker {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 32px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--line);
+  }
+  .date-picker label { font-size: 13px; color: var(--ink-soft); }
+  select {
+    font-family: inherit;
+    font-size: 14px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--panel);
+    color: var(--ink);
+  }
+  .refresh-link {
+    margin-left: auto;
+    font-size: 13px;
+    color: var(--ink-soft);
+    text-decoration: underline;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+  }
+
+  .summary-line {
+    font-size: 14px;
+    color: var(--ink-soft);
+    margin-bottom: 28px;
+  }
+  .summary-line strong { color: var(--ink); font-weight: 600; }
+
+  .client {
+    padding: 20px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .client:last-child { border-bottom: none; }
+  .client-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .client-name {
+    font-size: 17px;
+    font-weight: 600;
+  }
+  .client-status {
+    font-size: 12px;
+    color: var(--ink-soft);
+    text-transform: lowercase;
+  }
+  .items { list-style: none; margin: 0; padding: 0; }
+  .items li {
+    font-size: 14px;
+    padding: 6px 10px;
+    margin-bottom: 4px;
+    border-radius: 3px;
+    background: var(--flag-bg);
+    color: var(--flag);
+  }
+  .all-clear {
+    font-size: 14px;
+    color: var(--clean);
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 60px 0;
+    color: var(--ink-soft);
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+
+<div id="login">
+  <h1>WTM — Daily Check</h1>
+  <p>Client status and what needs attention today.</p>
+  <div class="field-row">
+    <input type="password" id="pw" placeholder="Password" autofocus />
+    <button id="loginBtn" onclick="attemptLogin()">View</button>
+  </div>
+  <div class="error-msg" id="loginError"></div>
+</div>
+
+<div id="app">
+  <div class="wrap">
+    <h1>WTM — Daily Check</h1>
+    <p class="subhead">Client status, pulled from Trainerize twice daily.</p>
+
+    <div class="date-picker">
+      <label for="dateSelect">Showing</label>
+      <select id="dateSelect" onchange="renderForSelectedDate()"></select>
+      <button class="refresh-link" onclick="loadData()">Refresh</button>
+    </div>
+
+    <div class="summary-line" id="summaryLine"></div>
+    <div id="clientList"></div>
+  </div>
+</div>
+
+<script>
+  // --- Configure these two before hosting ---
+  const FUNCTION_URL = 'https://nvkwgsbkscjyretlyfrk.supabase.co/functions/v1/dashboard-data';
+  const ANON_KEY = 'sb_publishable_D7vOGBfH3q08YRMjP4XlrQ_mU6sGXmW';
+  // -------------------------------------------
+
+  let allRows = [];
+  let storedPassword = '';
+
+  function attemptLogin() {
+    const pw = document.getElementById('pw').value;
+    if (!pw) return;
+    storedPassword = pw;
+    loadData();
+  }
+
+  document.getElementById('pw').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') attemptLogin();
+  });
+
+  async function loadData() {
+    const btn = document.getElementById('loginBtn');
+    const errEl = document.getElementById('loginError');
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+    if (errEl) errEl.textContent = '';
+
+    try {
+      const res = await fetch(FUNCTION_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': ANON_KEY,
+        },
+        body: JSON.stringify({ password: storedPassword }),
+      });
+
+      if (res.status === 401) {
+        if (errEl) errEl.textContent = 'Incorrect password.';
+        if (btn) { btn.disabled = false; btn.textContent = 'View'; }
+        return;
+      }
+      if (!res.ok) {
+        if (errEl) errEl.textContent = 'Something went wrong loading data.';
+        if (btn) { btn.disabled = false; btn.textContent = 'View'; }
+        return;
+      }
+
+      const { rows } = await res.json();
+      allRows = rows || [];
+
+      document.getElementById('login').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+
+      populateDatePicker();
+      renderForSelectedDate();
+    } catch (e) {
+      if (errEl) errEl.textContent = 'Could not reach the dashboard data.';
+      if (btn) { btn.disabled = false; btn.textContent = 'View'; }
+    }
+  }
+
+  function populateDatePicker() {
+    const dates = [...new Set(allRows.map(r => r.sync_date))].sort().reverse();
+    const select = document.getElementById('dateSelect');
+    select.innerHTML = dates.map(d => `<option value="${d}">${formatDate(d)}</option>`).join('');
+  }
+
+  function formatDate(d) {
+    const date = new Date(d + 'T00:00:00Z');
+    return date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  }
+
+  function renderForSelectedDate() {
+    const selected = document.getElementById('dateSelect').value;
+    const rows = allRows.filter(r => r.sync_date === selected);
+
+    const flagged = rows.filter(r => r.action_items && r.action_items.length > 0);
+    const clear = rows.filter(r => !r.action_items || r.action_items.length === 0);
+
+    document.getElementById('summaryLine').innerHTML =
+      rows.length === 0
+        ? 'No data for this date.'
+        : `<strong>${flagged.length}</strong> of <strong>${rows.length}</strong> clients need attention.`;
+
+    const sorted = [...flagged, ...clear];
+    const listEl = document.getElementById('clientList');
+
+    if (sorted.length === 0) {
+      listEl.innerHTML = '<div class="empty-state">No client data for this date.</div>';
+      return;
+    }
+
+    listEl.innerHTML = sorted.map(r => `
+      <div class="client">
+        <div class="client-head">
+          <span class="client-name">${escapeHtml(r.first_name || '')} ${escapeHtml(r.last_name || '')}</span>
+          <span class="client-status">${escapeHtml(r.status || '')}</span>
+        </div>
+        ${
+          r.action_items && r.action_items.length
+            ? `<ul class="items">${r.action_items.map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul>`
+            : `<div class="all-clear">Nothing needs attention</div>`
+        }
+      </div>
+    `).join('');
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+</script>
+
+</body>
+</html>
