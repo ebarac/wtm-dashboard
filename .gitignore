@@ -1,0 +1,7 @@
+# macOS
+.DS_Store
+
+# Task briefs live in the private wtm-trainerize-sync repo, not here -
+# this repo is public because GitHub Pages needs it to be on the free
+# plan, so internal working notes stay out of it.
+TASK_*.md
