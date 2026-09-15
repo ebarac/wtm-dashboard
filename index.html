@@ -138,17 +138,67 @@
     color: var(--ink-soft);
     text-transform: lowercase;
   }
-  .items { list-style: none; margin: 0; padding: 0; }
-  .items li {
-    font-size: 14px;
-    padding: 6px 10px;
-    margin-bottom: 4px;
-    border-radius: 3px;
-    background: var(--flag-bg);
-    color: var(--flag);
+  /* --- Headline signals ---
+     Two indicator sets that must never be confused with each other:
+     check-in uses a SQUARE, activity uses a CIRCLE, and both carry a
+     text label, so neither colour nor shape alone has to do the work. */
+  .signals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 10px 0 8px;
   }
+  .signal {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    padding: 5px 10px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--panel);
+    white-space: nowrap;
+  }
+  .mark {
+    width: 10px;
+    height: 10px;
+    flex: none;
+    background: var(--sig, var(--ink-soft));
+  }
+  .checkin .mark, .checkin-mark { border-radius: 2px; }       /* square */
+  .activity .mark, .activity-mark { border-radius: 50%; }     /* circle */
+  .signal .label { color: var(--ink-soft); }
+  .signal .value { font-weight: 600; }
+  .signal .days { color: var(--ink-soft); }
+
+  .sig-green  { --sig: #4C7A63; }
+  .sig-amber  { --sig: #B8860B; }
+  .sig-orange { --sig: #C2662E; }
+  .sig-red    { --sig: #A63D4E; }
+  .sig-grey   { --sig: #9AA095; }
+  .sig-red .value  { color: var(--flag); }
+
+  .legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin: -14px 0 26px;
+  }
+  .legend span.mark { display: inline-block; vertical-align: middle; margin-right: 5px; background: var(--ink-soft); }
+
+  /* Secondary detail: still useful, deliberately not the primary scan. */
+  .items { list-style: none; margin: 4px 0 0; padding: 0; }
+  .items li {
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    padding: 1px 0;
+  }
+  .items li::before { content: "— "; color: var(--line); }
   .all-clear {
-    font-size: 14px;
+    font-size: 13px;
     color: var(--clean);
   }
 
@@ -184,6 +234,10 @@
     </div>
 
     <div class="summary-line" id="summaryLine"></div>
+    <div class="legend">
+      <span><span class="mark checkin-mark"></span>square = weekly check-in</span>
+      <span><span class="mark activity-mark"></span>circle = activity</span>
+    </div>
     <div id="clientList"></div>
   </div>
 </div>
@@ -260,39 +314,100 @@
     return date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   }
 
+  // Mirrors ACTIVITY_DAYS_CAP in trainerize_sync.py - anything at the cap
+  // is displayed as "14d+" rather than an exact number.
+  const ACTIVITY_DAYS_CAP = 14;
+
+  // null on either signal means the calendar call failed for that client:
+  // shown as "No data", never quietly rendered as a pass.
+  const CHECKIN_META = {
+    green: { cls: 'sig-green', text: 'Submitted' },
+    amber: { cls: 'sig-amber', text: 'Due' },
+    red:   { cls: 'sig-red',   text: 'Overdue' },
+    'n/a': { cls: 'sig-grey',  text: 'No check-in cadence' },
+  };
+  const ACTIVITY_META = {
+    active:  { cls: 'sig-green',  text: 'Active' },
+    quiet_3: { cls: 'sig-amber',  text: 'Quiet 3–4d' },
+    quiet_5: { cls: 'sig-orange', text: 'Quiet 5–6d' },
+    quiet_7: { cls: 'sig-red',    text: 'Quiet 7d+' },
+  };
+  const NO_DATA = { cls: 'sig-grey', text: 'No data' };
+
+  // Worse of the two signals decides where a client sits. Lower is more
+  // urgent. Unknown data ranks high on purpose - a failed pull should be
+  // noticed, not buried at the bottom next to the healthy clients.
+  function urgencyRank(r) {
+    if (r.checkin_light === 'red' || r.activity_tier === 'quiet_7') return 0;
+    if (!r.checkin_light || !r.activity_tier) return 1;
+    if (r.checkin_light === 'amber' || r.activity_tier === 'quiet_5') return 2;
+    if (r.activity_tier === 'quiet_3') return 3;
+    return 4;
+  }
+
+  function signalHtml(kind, label, meta, days) {
+    const showDays = days !== null && days !== undefined;
+    const plus = kind === 'activity' && days >= ACTIVITY_DAYS_CAP ? '+' : '';
+    const daysHtml = showDays ? ` <span class="days">${days}d${plus}</span>` : '';
+    return `<span class="signal ${kind} ${meta.cls}">`
+      + `<span class="mark"></span>`
+      + `<span class="label">${label}</span>`
+      + `<span class="value">${escapeHtml(meta.text)}</span>${daysHtml}</span>`;
+  }
+
   function renderForSelectedDate() {
     const selected = document.getElementById('dateSelect').value;
     const rows = allRows.filter(r => r.sync_date === selected);
 
-    const flagged = rows.filter(r => r.action_items && r.action_items.length > 0);
-    const clear = rows.filter(r => !r.action_items || r.action_items.length === 0);
-
+    const needsAttention = rows.filter(
+      r => urgencyRank(r) < 4
+        || (r.headline_items && r.headline_items.length)
+        || (r.action_items && r.action_items.length)
+    );
     document.getElementById('summaryLine').innerHTML =
       rows.length === 0
         ? 'No data for this date.'
-        : `<strong>${flagged.length}</strong> of <strong>${rows.length}</strong> clients need attention.`;
+        : `<strong>${needsAttention.length}</strong> of <strong>${rows.length}</strong> clients need attention.`;
 
-    const sorted = [...flagged, ...clear];
+    const sorted = [...rows].sort((a, b) => {
+      const byUrgency = urgencyRank(a) - urgencyRank(b);
+      if (byUrgency !== 0) return byUrgency;
+      const nameA = `${a.first_name || ''} ${a.last_name || ''}`.trim();
+      const nameB = `${b.first_name || ''} ${b.last_name || ''}`.trim();
+      return nameA.localeCompare(nameB);
+    });
+
     const listEl = document.getElementById('clientList');
-
     if (sorted.length === 0) {
       listEl.innerHTML = '<div class="empty-state">No client data for this date.</div>';
       return;
     }
 
-    listEl.innerHTML = sorted.map(r => `
+    listEl.innerHTML = sorted.map(r => {
+      const checkinMeta = CHECKIN_META[r.checkin_light] || NO_DATA;
+      const activityMeta = ACTIVITY_META[r.activity_tier] || NO_DATA;
+      // action_items holds only the secondary detail; the two headline
+      // signals arrive in headline_items and are drawn as indicators
+      // above. Disjoint lists, so no wording-dependent filtering here.
+      const items = r.action_items || [];
+      return `
       <div class="client">
         <div class="client-head">
           <span class="client-name">${escapeHtml(r.first_name || '')} ${escapeHtml(r.last_name || '')}</span>
           <span class="client-status">${escapeHtml(r.status || '')}</span>
         </div>
+        <div class="signals">
+          ${signalHtml('checkin', 'Check-in:', checkinMeta, r.days_since_checkin)}
+          ${signalHtml('activity', 'Activity:', activityMeta, r.days_since_activity)}
+        </div>
         ${
-          r.action_items && r.action_items.length
-            ? `<ul class="items">${r.action_items.map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul>`
-            : `<div class="all-clear">Nothing needs attention</div>`
+          items.length
+            ? `<ul class="items">${items.map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul>`
+            : ''
         }
       </div>
-    `).join('');
+    `;
+    }).join('');
   }
 
   function escapeHtml(str) {
